@@ -9,7 +9,7 @@ Usage:\n\
     pace [options] [file]\n\
 \n\
 Write bytes from file or stdin to stdout at a specific pace, defined as\n\
-nanoseconds per byte. The default pace is 86805 nS per byte to simulate 115,200\n\
+nanoseconds per byte. The default pace is 86805nS per byte to simulate 115,200\n\
 baud N-8-1 UART transfer.\n\
 \n\
 Options:\n\
@@ -19,7 +19,7 @@ Options:\n\
     -n nS       - nanoseconds per byte, 1 to 999999999\n\
     -v          - report pace to stderr\n\
 \n\
--b and -n are mutually exclusuive.\n\
+-b and -n are mutually exclusive. Exits immediately after last byte is sent.\n\
 ";
 
 #define _GNU_SOURCE
@@ -40,14 +40,13 @@ Options:\n\
 
 #define QMAX 4096
 unsigned char queue[QMAX];
-int qhead, qcount;
+volatile int qhead, qcount, status = 0;
 
 pthread_mutex_t qmutex = PTHREAD_MUTEX_INITIALIZER;
 #define qlock() pthread_mutex_lock(&qmutex)
 #define qunlock() pthread_mutex_unlock(&qmutex)
 
-int timerfd;
-int status = 0;
+int timerfd;              // timerfd handle for dequeue thread
 
 // Thread to write queued characters to stdout per timerfd
 // Exit on underflow or error with status set to reason
@@ -60,13 +59,13 @@ static void *dequeue(void * unused)
         if (read(timerfd, &pending, 8) != 8) { status = -errno; break; }
 
         qlock();
-        while (pending--)
+        while (qcount && pending--)
         {
-            if (!qcount) { status = INT_MAX; break; }   // underflow
             if (write(1, queue + qhead, 1) != 1) { status = errno; break; }
             qcount--;
             qhead = (qhead + 1) % QMAX;
         }
+        if (!qcount) status = INT_MAX; // underflow
         qunlock();
     }
     return NULL;
@@ -74,9 +73,8 @@ static void *dequeue(void * unused)
 
 int main(int argc, char *argv[])
 {
-    int nS = 87805; // nominal 115200 baud
-    int verbose = 0;
-    int first = 0;
+    int nS = 86805; // nS per byte, nominal 115200 baud
+    int verbose = 0, first = 0;
 
     while(1) switch(getopt(argc, argv,":b:fn:v"))
     {
@@ -84,7 +82,7 @@ int main(int argc, char *argv[])
         {
             int baud = (int)strtoul(optarg, NULL, 0);
             if (baud <= 10 || baud > 1000*1000) die("Invalid -b %s\n", optarg);
-            nS = 10*((1000*1000*1000)/baud);
+            nS = (10*1000*1000*1000LL)/baud;
             break;
         }
 

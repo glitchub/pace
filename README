@@ -1,0 +1,16 @@
+Usage:
+
+    pace [options] [file]
+
+Write bytes from file or stdin to stdout at a specific pace, defined as
+nanoseconds per byte. The default pace is 86805nS per byte to simulate 115,200
+baud N-8-1 UART transfer.
+
+Options:
+
+    -b baud     - simulate UART baud rate
+    -f          - also delay before the first byte
+    -n nS       - nanoseconds per byte, 1 to 999999999
+    -v          - report pace to stderr
+
+-b and -n are mutually exclusive. Exits immediately after last byte is sent.
