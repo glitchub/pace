@@ -14,13 +14,11 @@ baud N-8-1 UART transfer.\n\
 \n\
 Options:\n\
 \n\
-    -b baud     - simulate UART baud rate\n\
+    -b baud     - simulate UART baud rate, 10 to 99999999\n\
     -f          - also delay before the first byte\n\
     -n nS       - nanoseconds per byte, 100 to 999999999\n\
-    -s bytes    - size of input buffer buffer, default 65536\n\
+    -s bytes    - size of input queue, minimum 4096, default 65536\n\
     -v          - report the pace on stderr\n\
-\n\
--b and -n are mutually exclusive. Exits immediately after last byte is sent.\n\
 ";
 
 #define _GNU_SOURCE
@@ -90,17 +88,15 @@ static void *dequeue(void * unused)
 int main(int argc, char *argv[])
 {
     int nS = 86805; // nS per byte, nominal 115200 baud
-    int verbose = 0, first = 0, size = 65536;
+    int verbose = 0, first = 0, size = 65536, baud;
 
     while(1) switch(getopt(argc, argv,":b:fn:s:v"))
     {
         case 'b':
-        {
-            int baud = (int)strtoul(optarg, NULL, 0);
-            if (baud <= 10 || baud > 1000*1000) die("Invalid -b %s\n", optarg);
+            baud = (int)strtoul(optarg, NULL, 0);
+            if (baud < 10 || baud > 99999999) die("Invalid -b %s\n", optarg);
             nS = (10*1000*1000*1000LL)/baud;
             break;
-        }
 
         case 'f':
             first = 1;
@@ -108,12 +104,12 @@ int main(int argc, char *argv[])
 
         case 'n':
             nS = (int)strtoul(optarg, NULL, 0);
-            if (nS < 100 || nS >= 1000*1000*1000) die("Invalid -n %s\n", optarg);
+            if (nS < 100 || nS > 999999999) die("Invalid -n %s\n", optarg);
             break;
 
         case 's':
             size = (int)strtoul(optarg, NULL, 0);
-            if (size < 1) die("Invalid -s %s\n", optarg);
+            if (size < 4096) die("Invalid -s %s\n", optarg);
             break;
 
         case 'v':
@@ -125,6 +121,8 @@ int main(int argc, char *argv[])
         case -1: goto optx;
 
     } optx:;
+
+    if (verbose) fprintf(stderr, "Pace is %dnS per byte\n", nS);
 
     int input = 0; // default stdin
     if (optind < argc)
@@ -140,8 +138,6 @@ int main(int argc, char *argv[])
     if (got < 0) die ("Input read failed: %s\n", strerror(errno));
     if (!got) return 0; // nothing to read
     if (!putq(&q, buffer, got)) die("putq failed!\n");
-
-    if (verbose) fprintf(stderr, "Pace is %dnS per byte\n", nS);
 
     // create timerfd for the desired pace
     timerfd = timerfd_create(CLOCK_MONOTONIC, 0);
